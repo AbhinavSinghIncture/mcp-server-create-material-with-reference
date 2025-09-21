@@ -11,9 +11,5 @@
       "src": "/(.*)",
       "dest": "api/index.py"
     }
-  ],
-  "env": {
-    "GEMINI_API_KEY": "@gemini_api_key",
-    "AUTHORISATION_TOKEN": "@authorisation_token"
-  }
+  ]
 }
