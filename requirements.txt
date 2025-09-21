@@ -1,0 +1,16 @@
+# Your existing dependencies
+langgraph
+langchain
+langchain-google-genai>=2.1.0
+langchain-core>=0.3.0
+python-dotenv
+
+# MCP Server dependencies
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+fastmcp>=1.0.0
+pydantic>=2.5.0
+requests>=2.31.0
+
+# Optional: For enhanced development
+# python-multipart>=0.0.6
