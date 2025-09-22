@@ -943,7 +943,7 @@ if __name__ == "__main__":
     try:
         # Start server with streamable-http transport
         mcp.run(
-            transport="http",
+            transport="streamable-http",
             host="0.0.0.0",  # Listen on all interfaces for deployment
             port=8000
         )
