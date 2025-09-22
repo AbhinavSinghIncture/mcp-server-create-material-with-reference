@@ -771,6 +771,17 @@ def format_material_for_ui(selected_material: dict) -> str:
 
 
 # =============================================================================
+# FASTMCP SERVER IMPLEMENTATION
+# =============================================================================
+
+from fastmcp import FastMCP
+import json
+from typing import Dict, Any
+
+# Create FastMCP server instance
+mcp = FastMCP("Material Search Server")
+
+# =============================================================================
 # RAW TOOL FUNCTIONS (for testing and decoration)
 # =============================================================================
 
@@ -859,24 +870,10 @@ def _format_selected_material_for_ui(selected_material: Dict[str, Any]) -> str:
             "llm_instruction": "Tell user there was an error formatting the material data."
         })
 
-# =============================================================================
-# FASTMCP SERVER IMPLEMENTATION
-# =============================================================================
-
-from fastmcp import FastMCP
-import json
-from typing import Dict, Any
-import asyncio
-# Create FastMCP server instance
-mcp = FastMCP("Material Search Server")
-
-
 
 # =============================================================================
 # FASTMCP DECORATED TOOLS
 # =============================================================================
-
-
 
 @mcp.tool()
 def search_materials_for_reference(user_query: str) -> Dict[str, Any]:
@@ -906,49 +903,327 @@ def format_selected_material_for_ui(selected_material: Dict[str, Any]) -> str:
     return _format_selected_material_for_ui(selected_material)
 
 
+
+
 # =============================================================================
-# HEALTH CHECK ROUTE (Optional)
+# MCP HTTP SERVER FOR DEPLOYMENT (Replace server startup section)
 # =============================================================================
 
-@mcp.custom_route("/health", methods=["GET"])
-async def health_check(request):
-    """Health check endpoint for deployment monitoring"""
-    from starlette.responses import JSONResponse
-    return JSONResponse({
-        "status": "healthy",
-        "server": "Material Search MCP Server",
-        "timestamp": "2025-09-22T04:44:00Z",
-        "tools_available": 2
-    })
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+import uvicorn
+import json
+from typing import Dict, Any, List, Optional, Union
+
+# Create FastAPI app with MCP protocol compliance
+app = FastAPI(
+    title="Material Search MCP Server",
+    description="MCP-compliant HTTP server for material search tools",
+    version="1.0.0"
+)
+
+# Add CORS middleware for cross-origin requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# =============================================================================
+# MCP PROTOCOL MODELS (Exact specification compliance)
+# =============================================================================
+
+class MCPRequest(BaseModel):
+    jsonrpc: str = Field(default="2.0", description="JSON-RPC version")
+    id: Optional[Union[str, int]] = Field(default=None, description="Request ID")
+    method: str = Field(description="MCP method name")
+    params: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Method parameters")
+
+class MCPError(BaseModel):
+    code: int = Field(description="Error code")
+    message: str = Field(description="Error message")
+    data: Optional[Any] = Field(default=None, description="Additional error data")
+
+class MCPResponse(BaseModel):
+    jsonrpc: str = Field(default="2.0", description="JSON-RPC version")
+    id: Optional[Union[str, int]] = Field(default=None, description="Request ID")
+    result: Optional[Dict[str, Any]] = Field(default=None, description="Success result")
+    error: Optional[MCPError] = Field(default=None, description="Error details")
+
+# =============================================================================
+# MCP PROTOCOL IMPLEMENTATION
+# =============================================================================
+
+@app.get("/")
+async def server_info():
+    """Server information endpoint"""
+    return {
+        "name": "Material Search Server",
+        "version": "1.0.0",
+        "protocol": "Model Context Protocol",
+        "transport": "HTTP",
+        "capabilities": {
+            "tools": {
+                "listChanged": False
+            }
+        },
+        "tools": [
+            "search_materials_for_reference",
+            "format_selected_material_for_ui"
+        ],
+        "endpoints": {
+            "mcp": "/mcp",
+            "health": "/health"
+        }
+    }
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "timestamp": "2025-09-21T12:58:00Z"}
+
+@app.post("/mcp")
+async def mcp_protocol_handler(request: MCPRequest) -> MCPResponse:
+    """
+    Main MCP protocol handler - handles all MCP method calls
+    This is the endpoint MCP clients will connect to
+    """
+    
+    try:
+        print(f"🔵 MCP Request: {request.method} (ID: {request.id})")
+        
+        if request.method == "initialize":
+            # MCP initialization handshake
+            return MCPResponse(
+                id=request.id,
+                result={
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "tools": {}
+                    },
+                    "serverInfo": {
+                        "name": "Material Search Server",
+                        "version": "1.0.0"
+                    }
+                }
+            )
+        
+        elif request.method == "tools/list":
+            # Return available tools for MCP client discovery
+            tools = [
+                {
+                    "name": "search_materials_for_reference",
+                    "description": "Search for materials based on user query and return selectable results for material reference creation",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "user_query": {
+                                "type": "string",
+                                "description": "User's search request (e.g., 'Create with reference material type FERT, number CWUTEST70, plant I00X')"
+                            }
+                        },
+                        "required": ["user_query"]
+                    }
+                },
+                {
+                    "name": "format_selected_material_for_ui",
+                    "description": "Format the selected material object into a UI-parseable format that triggers API calls",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "selected_material": {
+                                "type": "object",
+                                "description": "Single material object from search results with material details",
+                                "properties": {
+                                    "material_number": {"type": "string"},
+                                    "material_type": {"type": "string"},
+                                    "plant": {"type": "string"},
+                                    "request_id": {"type": "string"},
+                                    "sales_org": {"type": "string"},
+                                    "distribution_channel": {"type": "string"},
+                                    "storage_location": {"type": "string"},
+                                    "warehouse": {"type": "string"}
+                                },
+                                "required": ["material_number", "material_type", "plant"]
+                            }
+                        },
+                        "required": ["selected_material"]
+                    }
+                }
+            ]
+            
+            print(f"✅ Returning {len(tools)} tools to MCP client")
+            
+            return MCPResponse(
+                id=request.id,
+                result={"tools": tools}
+            )
+        
+        elif request.method == "tools/call":
+            # Handle tool execution calls
+            tool_name = request.params.get("name")
+            arguments = request.params.get("arguments", {})
+            
+            print(f"🔧 Executing tool: {tool_name}")
+            print(f"📥 Arguments: {json.dumps(arguments, indent=2)}")
+            
+            if tool_name == "search_materials_for_reference":
+                user_query = arguments.get("user_query", "")
+                
+                if not user_query:
+                    return MCPResponse(
+                        id=request.id,
+                        error=MCPError(
+                            code=-32602,
+                            message="Invalid params: user_query is required"
+                        )
+                    )
+                
+                # Execute Tool 1
+                result = _search_materials_for_reference(user_query)
+                
+                return MCPResponse(
+                    id=request.id,
+                    result={
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(result, indent=2)
+                            }
+                        ]
+                    }
+                )
+            
+            elif tool_name == "format_selected_material_for_ui":
+                selected_material = arguments.get("selected_material", {})
+                
+                if not selected_material:
+                    return MCPResponse(
+                        id=request.id,
+                        error=MCPError(
+                            code=-32602,
+                            message="Invalid params: selected_material is required"
+                        )
+                    )
+                
+                # Execute Tool 2
+                formatted_response = _format_selected_material_for_ui(selected_material)
+                
+                return MCPResponse(
+                    id=request.id,
+                    result={
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": formatted_response
+                            }
+                        ]
+                    }
+                )
+            
+            else:
+                return MCPResponse(
+                    id=request.id,
+                    error=MCPError(
+                        code=-32601,
+                        message=f"Method not found: {tool_name}"
+                    )
+                )
+        
+        elif request.method == "ping":
+            # Handle ping requests
+            return MCPResponse(
+                id=request.id,
+                result={}
+            )
+        
+        else:
+            return MCPResponse(
+                id=request.id,
+                error=MCPError(
+                    code=-32601,
+                    message=f"Method not found: {request.method}"
+                )
+            )
+    
+    except Exception as e:
+        print(f"❌ MCP Protocol Error: {str(e)}")
+        return MCPResponse(
+            id=request.id,
+            error=MCPError(
+                code=-32603,
+                message=f"Internal error: {str(e)}"
+            )
+        )
+
+# =============================================================================
+# ADDITIONAL HTTP ENDPOINTS (For testing and alternative access)
+# =============================================================================
+
+@app.post("/test/search")
+async def test_search_tool(request: Dict[str, str]):
+    """Test endpoint for Tool 1 (non-MCP)"""
+    try:
+        user_query = request.get("user_query", "")
+        result = _search_materials_for_reference(user_query)
+        return {"success": True, "data": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/test/format")  
+async def test_format_tool(request: Dict[str, Any]):
+    """Test endpoint for Tool 2 (non-MCP)"""
+    try:
+        selected_material = request.get("selected_material", {})
+        result = _format_selected_material_for_ui(selected_material)
+        return {"success": True, "data": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
 # SERVER STARTUP
 # =============================================================================
 
 if __name__ == "__main__":
-    print("🚀 Starting FastMCP Streamable HTTP Server")
-    print("=" * 60)
+    print("🚀 Starting MCP HTTP Server for Deployment")
+    print("=" * 70)
     print("🏷️  Server: Material Search MCP Server")
-    print("🌐 Protocol: Streamable HTTP (MCP 2.0)")
+    print("🌐 Protocol: Model Context Protocol over HTTP")
     print("🔧 Tools Available:")
     print("   1. search_materials_for_reference")
     print("   2. format_selected_material_for_ui")
-    print("=" * 60)
-    print("📡 MCP Endpoint: http://localhost:8000/mcp")
-    print("💚 Health Check: http://localhost:8000/health")
-    print("🔌 MCP clients can connect to streamable-http transport")
+    print("=" * 70)
+    print("📡 MCP Endpoint: POST /mcp")
+    print("💚 Health Check: GET /health")
+    print("📖 API Docs: http://localhost:8000/docs")
+    print("🧪 Test Endpoints:")
+    print("   - POST /test/search")
+    print("   - POST /test/format")
+    print("=" * 70)
+    
+    # Server configuration
+    host = "0.0.0.0"  # Listen on all interfaces for deployment
+    port = 8000
+    
+    print(f"🌐 Starting server on {host}:{port}")
+    print("🔌 MCP clients can connect to: http://your-server:8000/mcp")
     print("Press Ctrl+C to stop")
-    print("=" * 60)
+    print("=" * 70)
     
     try:
-        # Start server with streamable-http transport
-        mcp.run(
-            transport="http",
-            host="0.0.0.0",  # Listen on all interfaces for deployment
-            port=8000
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            reload=False,
+            access_log=True,
+            log_level="info"
         )
         
     except KeyboardInterrupt:
-        print("\n👋 FastMCP Server stopped by user")
+        print("\n👋 MCP Server stopped by user")
     except Exception as e:
         print(f"❌ Server startup error: {e}")
